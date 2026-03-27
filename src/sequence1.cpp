@@ -1,14 +1,25 @@
 #include <Arduino.h>
 
-// On prévient ce fichier que les fonctions moteurs existent dans main.cpp
-extern void driveDistance(float cm);
-extern void turnAngle(float degrees);
+// Décommentez ces lignes quand vous aurez créé votre fichier moteurs.cpp !
+// extern void driveDistance(float cm);
+// extern void turnAngle(float degrees);
 
-void executeSequence1() {
-  Serial.println("--- LANCEMENT SEQUENCE 1 (Escalier) ---");
+void seq1_classique() {
+  Serial.println("=== LANCEMENT SÉQUENCE 1 (CLASSIQUE) ===");
+  Serial.println("Action : Traçage de l'escalier...");
   
-  // Simulation de 3 secondes
-  delay(3000); 
+  delay(3000); // À remplacer par votre suite de driveDistance et turnAngle
+  
+  Serial.println("=== FIN SÉQUENCE 1 ===");
+}
 
-  Serial.println("--- FIN SEQUENCE 1 ---");
+void seq1_avancee(int nbr_carres) {
+  Serial.println("=== LANCEMENT SÉQUENCE 1 (AVANCÉE) ===");
+  Serial.print("Action : Traçage de ");
+  Serial.print(nbr_carres);
+  Serial.println(" carrés circonscrits...");
+  
+  delay(3000); // À remplacer par votre algorithme géométrique
+  
+  Serial.println("=== FIN SÉQUENCE 1 ===");
 }
