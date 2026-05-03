@@ -33,11 +33,32 @@ IPAddress gateway(192,168,4,1);
 IPAddress subnet(255,255,255,0);
 WebServer server(80);
 
+// --- FONCTION ENVOIE DE DONNÉES AU SERVEUR ---
+struct Validation {
+  float dist_th, dist_mes;
+  float ang_th, ang_mes;
+  float rayon_th, rayon_mes;
+  float erreur_fermeture;
+  float nord_th, nord_mes;
+} dernierTest;
+
+void handle_GetData() {
+  String json = "{";
+  json += "\"s1_d_th\":" + String(dernierTest.dist_th) + ",\"s1_d_mes\":" + String(dernierTest.dist_mes) + ",";
+  json += "\"s1_a_th\":" + String(dernierTest.ang_th) + ",\"s1_a_mes\":" + String(dernierTest.ang_mes) + ",";
+  json += "\"s2_r_th\":" + String(dernierTest.rayon_th) + ",\"s2_r_mes\":" + String(dernierTest.rayon_mes) + ",";
+  json += "\"s2_err\":" + String(dernierTest.erreur_fermeture) + ",";
+  json += "\"s3_n_th\":" + String(dernierTest.nord_th) + ",\"s3_n_mes\":" + String(dernierTest.nord_mes);
+  json += "}";
+  server.send(200, "application/json", json);
+}
+
 // ==========================================
 // INTERFACE HTML
 // ==========================================
 String pageEntete(String titre) {
   String str = "<!DOCTYPE html><html><head><meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\"><meta charset=\"UTF-8\">";
+  str += "<script src=\"https://cdn.jsdelivr.net/npm/chart.js\"></script>";
   str += "<style>";
   str += "body {font-family: Arial, sans-serif; text-align: center; background-color: white; color: black; margin: 0; padding: 20px;}";
   str += "h1, h2 {color: #007A7B;}";
@@ -49,6 +70,7 @@ String pageEntete(String titre) {
   str += ".btn-cmd:hover {background-color: #007A7B; color: white;}";
   str += "input[type=number] {padding: 10px; font-size: 16px; width: 120px; text-align: center; margin-bottom: 10px; border-radius: 5px; border: 2px solid #007A7B; color: black; outline: none;}";
   str += ".box {background-color: white; border: 2px solid black; padding: 15px; border-radius: 10px; margin-bottom: 20px;}";
+  str += "canvas { background: #f9f9f9; border: 1px solid #ddd; margin-top: 20px; max-width: 100%; }";
   str += "</style></head><body><h1>" + titre + "</h1>";
   return str;
 }
@@ -99,6 +121,41 @@ void handle_PageSeq3() {
   html += "<div class=\"box\"><h2>Mode Avancé (Rose des Vents)</h2><form action=\"/run_seq3_avancee\"><button type=\"submit\">Tracer l'étoile 8 branches</button></form></div>";
   html += "<a href=\"/\"><button class=\"btn-retour\">⬅️ Retour</button></a>";
   server.send(200, "text/html", html + pagePied());
+}
+
+void handle_PageGraph() {
+  String html = pageEntete("Performances Drawbot");
+  html += "<div class=\"grid\">";
+
+  html += "<div class=\"card\"><h3>S1: Distance (Th vs Mes)</h3><canvas id=\"chartS1L\"></canvas></div>";
+  html += "<div class=\"card\"><h3>S1: Angle (Th vs Mes)</h3><canvas id=\"chartS1A\"></canvas></div>";
+  html += "<div class=\"card\"><h3>S1: Acquisition (Tics)</h3><canvas id=\"chartS1T\"></canvas></div>";
+  
+  html += "<div class=\"card\"><h3>S2: Précision Rayon</h3><canvas id=\"chartS2R\"></canvas></div>";
+  html += "<div class=\"card\"><h3>S2: Erreur de Fermeture (cm)</h3><canvas id=\"chartS2E\"></canvas></div>";
+  
+  html += "<div class=\"card\"><h3>S3: Précision Linéaire</h3><canvas id=\"chartS3L\"></canvas></div>";
+  html += "<div class=\"card\"><h3>S3: Erreur Orientation Nord</h3><canvas id=\"chartS3A\"></canvas></div>";
+  
+  html += "</div><script>";
+  
+  html += "const ctx1 = document.getElementById('chartS1L');";
+  html += "const chartS1L = new Chart(ctx1, { type: 'bar', data: { labels: ['Théorique', 'Mesuré'], datasets: [{ label: 'Distance (cm)', data: [0, 0], backgroundColor: ['#007A7B', '#FF6384'] }] } });";
+  
+  html += "const ctxT = document.getElementById('chartS1T');";
+  html += "const chartS1T = new Chart(ctxT, { type: 'line', data: { labels: [], datasets: [{ label: 'Tics G', data: [], borderColor: 'red' }, { label: 'Tics D', data: [], borderColor: 'blue' }] } });";
+
+  // --- LOGIQUE DE MISE À JOUR ---
+  html += "setInterval(() => {";
+  html += "  fetch('/data_full').then(res => res.json()).then(d => {";
+  html += "    chartS1L.data.datasets[0].data = [d.s1.l_th, d.s1.l_mes]; chartS1L.update();";
+  html += "    if(chartS1T.data.labels.length > 50) { chartS1T.data.labels.shift(); chartS1T.data.datasets[0].data.shift(); chartS1T.data.datasets[1].data.shift(); }";
+  html += "    chartS1T.data.labels.push(''); chartS1T.data.datasets[0].data.push(d.s1.tg); chartS1T.data.datasets[1].data.push(d.s1.td); chartS1T.data.update();";
+  html += "  });";
+  html += "}, 1000);</script>";
+  
+  html += "<a href=\"/\"><button>Retour</button></a>" + pagePied();
+  server.send(200, "text/html", html);
 }
 
 void handle_PageCmd() {
@@ -173,6 +230,7 @@ void setup() {
   server.on("/page_seq1", handle_PageSeq1);
   server.on("/page_seq2", handle_PageSeq2);
   server.on("/page_seq3", handle_PageSeq3);
+  server.on("/page_graph", handle_PageGraph);
   server.on("/page_cmd", handle_PageCmd);
   server.on("/run_seq1_classique", handle_RunSeq1Classique);
   server.on("/run_seq1_avancee", handle_RunSeq1Avancee);
@@ -180,6 +238,7 @@ void setup() {
   server.on("/run_seq2_avancee", handle_RunSeq2Avancee);
   server.on("/run_seq3_classique", handle_RunSeq3Classique);
   server.on("/run_seq3_avancee", handle_RunSeq3Avancee);
+  server.on("/data", handle_GetData);
   server.on("/cmd", handle_Command);
   server.begin();
 
