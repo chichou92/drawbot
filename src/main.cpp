@@ -1,10 +1,10 @@
 #include <Arduino.h>
 #include <WiFi.h>
 #include <WebServer.h>
+#include "moteurs.h"
+#include <Wire.h> // Nécessaire pour lire le capteur ici aussi
 
-// ==========================================
-// LIENS VERS VOS FICHIERS DE SÉQUENCE (À coder plus tard)
-// ==========================================
+// --- DÉCLARATION DES FONCTIONS EXTERNES ---
 extern void seq1_classique();
 extern void seq1_avancee(int nbr_carres);
 extern void seq2_classique(int rayon);
@@ -17,72 +17,58 @@ extern void cmd_gauche();
 extern void cmd_droite();
 extern void cmd_stop();
 
-// ==========================================
-// PARAMÈTRES WI-FI & SERVEUR
-// ==========================================
+// --- VARIABLES GLOBALES ---
+volatile long ticsgauche = 0;
+volatile long ticsdroit = 0;
+
+int actionEnAttente = 0; 
+int paramVariable = 0; 
+bool robotEnMouvement = false; // Le Verrou de sécurité
+
+// --- PARAMÈTRES WI-FI ---
 const char* ssid = "Drawbot AR";
 const char* password = "Projetinge2.2";
-
 IPAddress local_ip(192,168,4,1);
 IPAddress gateway(192,168,4,1);
 IPAddress subnet(255,255,255,0);
 WebServer server(80);
 
-int actionEnAttente = 0; 
-int paramVariable = 0;   
-
 // ==========================================
-// FONCTIONS HTML (Le design du site)
+// INTERFACE HTML
 // ==========================================
 String pageEntete(String titre) {
   String str = "<!DOCTYPE html><html><head><meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\"><meta charset=\"UTF-8\">";
   str += "<style>";
-  // Fond blanc, texte noir
   str += "body {font-family: Arial, sans-serif; text-align: center; background-color: white; color: black; margin: 0; padding: 20px;}";
-  
-  // Titres en couleur ECE
   str += "h1, h2 {color: #007A7B;}";
-  
-  // Boutons classiques : Fond ECE, texte blanc. Au survol : Fond blanc, texte ECE
   str += "button {padding: 15px; font-size: 16px; margin: 10px; border: 2px solid #007A7B; border-radius: 8px; background-color: #007A7B; color: white; width: 90%; max-width: 300px; cursor: pointer; font-weight: bold; transition: 0.3s;}";
   str += "button:hover {background-color: white; color: #007A7B;}";
-  
-  // Boutons secondaires (Retour, Stop) : Fond noir, texte blanc. Au survol : Fond blanc, texte noir
   str += ".btn-retour, .btn-stop {background-color: black; border-color: black;}";
   str += ".btn-retour:hover, .btn-stop:hover {background-color: white; color: black;}";
-  
-  // Bouton Télécommande (Inversé par défaut pour se démarquer)
   str += ".btn-cmd {background-color: white; color: #007A7B;}";
   str += ".btn-cmd:hover {background-color: #007A7B; color: white;}";
-  
-  // Champs de texte (Rayon, Pétales)
   str += "input[type=number] {padding: 10px; font-size: 16px; width: 120px; text-align: center; margin-bottom: 10px; border-radius: 5px; border: 2px solid #007A7B; color: black; outline: none;}";
-  
-  // Boîtes autour des séquences : Bordure noire, fond blanc
   str += ".box {background-color: white; border: 2px solid black; padding: 15px; border-radius: 10px; margin-bottom: 20px;}";
-  
-  // Lignes de séparation
-  str += "hr {border: 1px solid #007A7B;}";
-  
-  str += "</style></head><body>";
-  str += "<h1>" + titre + "</h1>";
+  str += "</style></head><body><h1>" + titre + "</h1>";
   return str;
 }
 
-String pagePied() {
-  return "</body></html>";
+String pagePied() { return "</body></html>"; }
+
+void redirigerVers(String url) {
+  server.sendHeader("Location", url, true);
+  server.send(302, "text/plain", ""); 
 }
 
 // ==========================================
-// PAGES DU SITE
+// GESTIONNAIRES DE PAGES (HANDLERS)
 // ==========================================
 void handle_Accueil() {
   String html = pageEntete("Drawbot ECE");
   html += "<h2>Sélectionnez un mode :</h2>";
   html += "<a href=\"/page_seq1\"><button>Séquence 1 (Lignes/Carrés)</button></a><br>";
   html += "<a href=\"/page_seq2\"><button>Séquence 2 (Cercles/Rosaces)</button></a><br>";
-  html += "<a href=\"/page_seq3\"><button>Séquence 3 (Boussole)</button></a><br>";
-  html += "<hr style=\"border: 1px solid #7F8C8D; margin: 30px 0;\">";
+  html += "<a href=\"/page_seq3\"><button>Séquence 3 (Boussole)</button></a><br><hr>";
   html += "<a href=\"/page_cmd\"><button class=\"btn-cmd\">Télécommande Manuelle</button></a><br>";
   html += pagePied();
   server.send(200, "text/html", html);
@@ -90,53 +76,29 @@ void handle_Accueil() {
 
 void handle_PageSeq1() {
   String html = pageEntete("Séquence 1 - Carrés");
-  html += "<div class=\"box\"><h2>Mode Classique (Escalier)</h2>";
-  html += "<form action=\"/run_seq1_classique\" method=\"GET\">";
-  html += "<button type=\"submit\">Lancer l'escalier</button></form></div>";
-
-  html += "<div class=\"box\"><h2>Mode Avancé (Carrés circonscrits)</h2>";
-  html += "<form action=\"/run_seq1_avancee\" method=\"GET\">";
-  html += "<label>Nombre de carrés :</label><br>";
-  html += "<input type=\"number\" name=\"carres\" value=\"3\" min=\"1\" max=\"10\"><br>";
-  html += "<button type=\"submit\">Tracer les carrés</button></form></div>";
-
-  html += "<a href=\"/\"><button class=\"btn-retour\">⬅️ Retour Accueil</button></a>";
-  html += pagePied();
-  server.send(200, "text/html", html);
+  html += "<div class=\"box\"><h2>Mode Classique (Escalier)</h2><form action=\"/run_seq1_classique\"><button type=\"submit\">Lancer</button></form></div>";
+  html += "<div class=\"box\"><h2>Mode Avancé</h2><form action=\"/run_seq1_avancee\">";
+  html += "<input type=\"number\" name=\"carres\" value=\"3\"><br><button type=\"submit\">Tracer</button></form></div>";
+  html += "<a href=\"/\"><button class=\"btn-retour\">⬅️ Retour</button></a>";
+  server.send(200, "text/html", html + pagePied());
 }
 
 void handle_PageSeq2() {
   String html = pageEntete("Séquence 2 - Cercles");
-  html += "<div class=\"box\"><h2>Mode Classique (Cercle simple)</h2>";
-  html += "<form action=\"/run_seq2_classique\" method=\"GET\">";
-  html += "<label>Rayon (cm) :</label><br>";
-  html += "<input type=\"number\" name=\"rayon\" value=\"10\" min=\"5\" max=\"50\"><br>";
-  html += "<button type=\"submit\">Tracer le cercle</button></form></div>";
-
-  html += "<div class=\"box\"><h2>Mode Avancé (Rosace)</h2>";
-  html += "<form action=\"/run_seq2_avancee\" method=\"GET\">";
-  html += "<label>Nombre de pétales :</label><br>";
-  html += "<input type=\"number\" name=\"petales\" value=\"4\" min=\"4\" max=\"12\"><br>";
-  html += "<button type=\"submit\">Tracer la Rosace</button></form></div>";
-
-  html += "<a href=\"/\"><button class=\"btn-retour\">⬅️ Retour Accueil</button></a>";
-  html += pagePied();
-  server.send(200, "text/html", html);
+  html += "<div class=\"box\"><h2>Mode Classique (Cercle simple)</h2><form action=\"/run_seq2_classique\">";
+  html += "<label>Rayon (cm) :</label><br><input type=\"number\" name=\"rayon\" value=\"10\" min=\"5\" max=\"50\"><br><button type=\"submit\">Tracer le cercle</button></form></div>";
+  html += "<div class=\"box\"><h2>Mode Avancé (Rosace)</h2><form action=\"/run_seq2_avancee\">";
+  html += "<label>Nombre de pétales :</label><br><input type=\"number\" name=\"petales\" value=\"4\" min=\"4\" max=\"12\"><br><button type=\"submit\">Tracer la Rosace</button></form></div>";
+  html += "<a href=\"/\"><button class=\"btn-retour\">⬅️ Retour</button></a>";
+  server.send(200, "text/html", html + pagePied());
 }
 
 void handle_PageSeq3() {
   String html = pageEntete("Séquence 3 - Boussole");
-  html += "<div class=\"box\"><h2>Mode Classique (Ligne vers le Nord)</h2>";
-  html += "<form action=\"/run_seq3_classique\" method=\"GET\">";
-  html += "<button type=\"submit\">Chercher le Nord</button></form></div>";
-
-  html += "<div class=\"box\"><h2>Mode Avancé (Rose des Vents)</h2>";
-  html += "<form action=\"/run_seq3_avancee\" method=\"GET\">";
-  html += "<button type=\"submit\">Tracer l'étoile 8 branches</button></form></div>";
-
-  html += "<a href=\"/\"><button class=\"btn-retour\">⬅️ Retour Accueil</button></a>";
-  html += pagePied();
-  server.send(200, "text/html", html);
+  html += "<div class=\"box\"><h2>Mode Classique (Ligne vers le Nord)</h2><form action=\"/run_seq3_classique\"><button type=\"submit\">Chercher le Nord</button></form></div>";
+  html += "<div class=\"box\"><h2>Mode Avancé (Rose des Vents)</h2><form action=\"/run_seq3_avancee\"><button type=\"submit\">Tracer l'étoile 8 branches</button></form></div>";
+  html += "<a href=\"/\"><button class=\"btn-retour\">⬅️ Retour</button></a>";
+  server.send(200, "text/html", html + pagePied());
 }
 
 void handle_PageCmd() {
@@ -146,64 +108,72 @@ void handle_PageCmd() {
   html += "<a href=\"/cmd?dir=gauche\"><button style=\"width:40%;\">⬅️</button></a>";
   html += "<a href=\"/cmd?dir=droite\"><button style=\"width:40%;\">➡️</button></a><br>";
   html += "<a href=\"/cmd?dir=reculer\"><button>⬇️</button></a><br>";
-  html += "<a href=\"/cmd?dir=stop\"><button class=\"btn-stop\">STOP</button></a>";
-  html += "</div>";
-  html += "<a href=\"/\"><button class=\"btn-retour\">⬅️ Retour Accueil</button></a>";
-  html += pagePied();
-  server.send(200, "text/html", html);
+  html += "<a href=\"/cmd?dir=stop\"><button class=\"btn-stop\">STOP</button></a></div>";
+  html += "<a href=\"/\"><button class=\"btn-retour\">⬅️ Retour</button></a>";
+  server.send(200, "text/html", html + pagePied());
 }
 
 // ==========================================
-// ROUTAGE DES GÂCHETTES (Redirections transparentes)
+// LOGIQUE DE COMMANDE (AVEC VERROU)
 // ==========================================
-void redirigerVers(String url) {
-  server.sendHeader("Location", url, true);
-  server.send(302, "text/plain", ""); 
-}
-
-void handle_RunSeq1Classique() { actionEnAttente = 11; redirigerVers("/page_seq1"); }
-void handle_RunSeq1Avancee()   { if(server.hasArg("carres")) paramVariable = server.arg("carres").toInt(); actionEnAttente = 12; redirigerVers("/page_seq1"); }
-void handle_RunSeq2Classique() { if(server.hasArg("rayon")) paramVariable = server.arg("rayon").toInt(); actionEnAttente = 21; redirigerVers("/page_seq2"); }
-void handle_RunSeq2Avancee()   { if(server.hasArg("petales")) paramVariable = server.arg("petales").toInt(); actionEnAttente = 22; redirigerVers("/page_seq2"); }
-void handle_RunSeq3Classique() { actionEnAttente = 31; redirigerVers("/page_seq3"); }
-void handle_RunSeq3Avancee()   { actionEnAttente = 32; redirigerVers("/page_seq3"); }
+void handle_RunSeq1Classique() { if(!robotEnMouvement) actionEnAttente = 11; redirigerVers("/page_seq1"); }
+void handle_RunSeq1Avancee()   { if(!robotEnMouvement && server.hasArg("carres")) { paramVariable = server.arg("carres").toInt(); actionEnAttente = 12; } redirigerVers("/page_seq1"); }
+void handle_RunSeq2Classique() { if(!robotEnMouvement && server.hasArg("rayon")) { paramVariable = server.arg("rayon").toInt(); actionEnAttente = 21; } redirigerVers("/page_seq2"); }
+void handle_RunSeq2Avancee()   { if(!robotEnMouvement && server.hasArg("petales")) { paramVariable = server.arg("petales").toInt(); actionEnAttente = 22; } redirigerVers("/page_seq2"); }
+void handle_RunSeq3Classique() { if(!robotEnMouvement) actionEnAttente = 31; redirigerVers("/page_seq3"); }
+void handle_RunSeq3Avancee()   { if(!robotEnMouvement) actionEnAttente = 32; redirigerVers("/page_seq3"); }
 
 void handle_Command() {
+  if (robotEnMouvement) {
+    server.send(200, "text/html", "<h2>Robot occupe...</h2><script>setTimeout(function(){window.history.back();}, 1500);</script>");
+    return;
+  }
   if (server.hasArg("dir")) {
     String d = server.arg("dir");
     if(d == "avancer") actionEnAttente = 91;
-    if(d == "reculer") actionEnAttente = 92;
-    if(d == "gauche")  actionEnAttente = 93;
-    if(d == "droite")  actionEnAttente = 94;
-    if(d == "stop")    actionEnAttente = 95;
+    else if(d == "reculer") actionEnAttente = 92;
+    else if(d == "gauche")  actionEnAttente = 93;
+    else if(d == "droite")  actionEnAttente = 94;
+    else if(d == "stop")    actionEnAttente = 95;
+    redirigerVers("/page_cmd"); 
   }
-  redirigerVers("/page_cmd");
 }
 
-void handle_NotFound() {
-  // Ignore les requêtes silencieuses des navigateurs pour les icônes
-  if (server.uri() == "/favicon.ico") { server.send(404, "text/plain", ""); return; }
-  server.send(404, "text/plain", "Page introuvable !");
+void init_IMU() {
+  Wire.begin(21, 22); // SDA = 21, SCL = 22 d'après ton PDF
+  
+  Wire.beginTransmission(0x6B); // Adresse de l'IMU d'après ton PDF
+  Wire.write(0x11); // Registre CTRL2_G (Configuration du Gyroscope)
+  Wire.write(0x40); // On le règle à 104 Hz et 250 dps (degrés par seconde)
+  byte erreur = Wire.endTransmission();
+  
+  if (erreur == 0) {
+    Serial.println("IMU LSM6DS3 initialisé avec succès !");
+  } else {
+    Serial.println("ERREUR : IMU introuvable. Vérifie tes soudures !");
+  }
 }
+
+// --- INTERRUPTIONS ENCODEURS ---
+void IRAM_ATTR isr_gauche() { ticsgauche++; }
+void IRAM_ATTR isr_droit() { ticsdroit++; }
 
 // ==========================================
-// SETUP & LOOP
+// SETUP
 // ==========================================
 void setup() {
   Serial.begin(115200);
 
+  init_IMU();
+
   WiFi.softAP(ssid, password);
   WiFi.softAPConfig(local_ip, gateway, subnet);
-  delay(100);
-
-  // Pages
+  
   server.on("/", handle_Accueil);
   server.on("/page_seq1", handle_PageSeq1);
   server.on("/page_seq2", handle_PageSeq2);
   server.on("/page_seq3", handle_PageSeq3);
   server.on("/page_cmd", handle_PageCmd);
-
-  // Actions
   server.on("/run_seq1_classique", handle_RunSeq1Classique);
   server.on("/run_seq1_avancee", handle_RunSeq1Avancee);
   server.on("/run_seq2_classique", handle_RunSeq2Classique);
@@ -211,16 +181,33 @@ void setup() {
   server.on("/run_seq3_classique", handle_RunSeq3Classique);
   server.on("/run_seq3_avancee", handle_RunSeq3Avancee);
   server.on("/cmd", handle_Command);
-  server.onNotFound(handle_NotFound);
-
   server.begin();
-  Serial.println("Serveur prêt. Connectez-vous à 192.168.4.1");
+
+  // PWM Configuration
+  for(int i=0; i<4; i++) ledcSetup(i, 5000, 8);
+  ledcAttachPin(17, 0); ledcAttachPin(16, 1); // Gauche
+  ledcAttachPin(19, 2); ledcAttachPin(18, 3); // Droit
+  
+  pinMode(4, OUTPUT); pinMode(23, OUTPUT);
+  digitalWrite(4, HIGH); digitalWrite(23, HIGH);
+
+  pinMode(32, INPUT_PULLUP); pinMode(27, INPUT_PULLUP);
+  attachInterrupt(digitalPinToInterrupt(32), isr_gauche, RISING);
+  attachInterrupt(digitalPinToInterrupt(27), isr_droit, RISING);
+
+  Serial.println("Drawbot pret sur 192.168.4.1");
 }
 
+// ==========================================
+// LOOP PRINCIPALE
+// ==========================================
 void loop() {
   server.handleClient();
 
-  if (actionEnAttente != 0) {
+  if (actionEnAttente != 0 && !robotEnMouvement) {
+    robotEnMouvement = true; // Verrouillage
+    Serial.println("Execution de l'action...");
+
     switch (actionEnAttente) {
       case 11: seq1_classique(); break;
       case 12: seq1_avancee(paramVariable); break;
@@ -234,6 +221,9 @@ void loop() {
       case 94: cmd_droite(); break;
       case 95: cmd_stop(); break;
     }
-    actionEnAttente = 0; // Réarmement
+
+    actionEnAttente = 0; 
+    robotEnMouvement = false; // Déverrouillage
+    Serial.println("Robot pret pour l'ordre suivant.");
   }
 }

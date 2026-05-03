@@ -1,28 +1,28 @@
 #include <Arduino.h>
-
-// extern void setMotors(int leftDir, int rightDir);
+#include "moteurs.h" 
 
 void cmd_avancer() {
-  Serial.println("CMD: Avance");
-  // setMotors(1, 1);
+  Serial.println("CMD: Avancer 20 cm");
+  avancer(20.0);
 }
 
 void cmd_reculer() {
-  Serial.println("CMD: Recule");
-  // setMotors(-1, -1);
+  Serial.println("CMD: Reculer 20 cm");
+  avancer(-20.0);
 }
 
 void cmd_gauche() {
-  Serial.println("CMD: Gauche");
-  // setMotors(-1, 1);
+  Serial.println("CMD: Virage Tractrice Gauche");
+  virage_tractrice(-90.0);
 }
 
 void cmd_droite() {
-  Serial.println("CMD: Droite");
-  // setMotors(1, -1);
+  Serial.println("CMD: Virage Tractrice Droite");
+  virage_tractrice(90.0);
 }
 
 void cmd_stop() {
   Serial.println("CMD: STOP");
-  // setMotors(0, 0);
+  setMoteurGauche(0);
+  setMoteurDroit(0);
 }
