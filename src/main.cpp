@@ -33,11 +33,32 @@ IPAddress gateway(192,168,4,1);
 IPAddress subnet(255,255,255,0);
 WebServer server(80);
 
+// --- FONCTION ENVOIE DE DONNÉES AU SERVEUR ---
+struct Validation {
+  float dist_th, dist_mes;
+  float ang_th, ang_mes;
+  float rayon_th, rayon_mes;
+  float erreur_fermeture;
+  float nord_th, nord_mes;
+} dernierTest;
+
+void handle_GetData() {
+  String json = "{";
+  json += "\"s1_d_th\":" + String(dernierTest.dist_th) + ",\"s1_d_mes\":" + String(dernierTest.dist_mes) + ",";
+  json += "\"s1_a_th\":" + String(dernierTest.ang_th) + ",\"s1_a_mes\":" + String(dernierTest.ang_mes) + ",";
+  json += "\"s2_r_th\":" + String(dernierTest.rayon_th) + ",\"s2_r_mes\":" + String(dernierTest.rayon_mes) + ",";
+  json += "\"s2_err\":" + String(dernierTest.erreur_fermeture) + ",";
+  json += "\"s3_n_th\":" + String(dernierTest.nord_th) + ",\"s3_n_mes\":" + String(dernierTest.nord_mes);
+  json += "}";
+  server.send(200, "application/json", json);
+}
+
 // ==========================================
 // INTERFACE HTML
 // ==========================================
 String pageEntete(String titre) {
   String str = "<!DOCTYPE html><html><head><meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\"><meta charset=\"UTF-8\">";
+  str += "<script src=\"https://cdn.jsdelivr.net/npm/chart.js\"></script>";
   str += "<style>";
   str += "body {font-family: Arial, sans-serif; text-align: center; background-color: white; color: black; margin: 0; padding: 20px;}";
   str += "h1, h2 {color: #007A7B;}";
@@ -49,6 +70,7 @@ String pageEntete(String titre) {
   str += ".btn-cmd:hover {background-color: #007A7B; color: white;}";
   str += "input[type=number] {padding: 10px; font-size: 16px; width: 120px; text-align: center; margin-bottom: 10px; border-radius: 5px; border: 2px solid #007A7B; color: black; outline: none;}";
   str += ".box {background-color: white; border: 2px solid black; padding: 15px; border-radius: 10px; margin-bottom: 20px;}";
+  str += "canvas { background: #f9f9f9; border: 1px solid #ddd; margin-top: 20px; max-width: 100%; }";
   str += "</style></head><body><h1>" + titre + "</h1>";
   return str;
 }
@@ -97,6 +119,39 @@ void handle_PageSeq3() {
   String html = pageEntete("Séquence 3 - Boussole");
   html += "<div class=\"box\"><h2>Mode Classique (Ligne vers le Nord)</h2><form action=\"/run_seq3_classique\"><button type=\"submit\">Chercher le Nord</button></form></div>";
   html += "<div class=\"box\"><h2>Mode Avancé (Rose des Vents)</h2><form action=\"/run_seq3_avancee\"><button type=\"submit\">Tracer l'étoile 8 branches</button></form></div>";
+  html += "<a href=\"/\"><button class=\"btn-retour\">⬅️ Retour</button></a>";
+  server.send(200, "text/html", html + pagePied());
+}
+
+void handle_PageGraph() {
+  String html = pageEntete("Performances Drawbot");
+  html += "<div class=\"box\">";
+  html += "<h2>Suivi des Encodeurs</h2>";
+  html += "<canvas id=\"myChart\" width=\"400\" height=\"200\"></canvas>";
+  html += "</div>";
+
+  html += "<script>";
+  html += "var ctx = document.getElementById('myChart').getContext('2d');";
+  html += "var chart = new Chart(ctx, {";
+  html += "  type: 'line',";
+  html += "  data: { labels: [], datasets: [";
+  html += "    { label: 'Tics Gauche', borderColor: 'red', data: [], fill: false },";
+  html += "    { label: 'Tics Droit', borderColor: 'blue', data: [], fill: false }";
+  html += "  ]},";
+  html += "  options: { scales: { y: { beginAtZero: true } } }";
+  html += "});";
+
+  html += "setInterval(function() {";
+  html += "  fetch('/data').then(response => response.json()).then(data => {";
+  html += "    if(chart.data.labels.length > 20) { chart.data.labels.shift(); chart.data.datasets[0].data.shift(); chart.data.datasets[1].data.shift(); }";
+  html += "    chart.data.labels.push(new Date().toLocaleTimeString());";
+  html += "    chart.data.datasets[0].data.push(data.ticsG);";
+  html += "    chart.data.datasets[1].data.push(data.ticsD);";
+  html += "    chart.update();";
+  html += "  });";
+  html += "}, 500);";
+  html += "</script>";
+
   html += "<a href=\"/\"><button class=\"btn-retour\">⬅️ Retour</button></a>";
   server.send(200, "text/html", html + pagePied());
 }
@@ -173,6 +228,7 @@ void setup() {
   server.on("/page_seq1", handle_PageSeq1);
   server.on("/page_seq2", handle_PageSeq2);
   server.on("/page_seq3", handle_PageSeq3);
+  server.on("/page_graph", handle_PageGraph);
   server.on("/page_cmd", handle_PageCmd);
   server.on("/run_seq1_classique", handle_RunSeq1Classique);
   server.on("/run_seq1_avancee", handle_RunSeq1Avancee);
@@ -180,6 +236,7 @@ void setup() {
   server.on("/run_seq2_avancee", handle_RunSeq2Avancee);
   server.on("/run_seq3_classique", handle_RunSeq3Classique);
   server.on("/run_seq3_avancee", handle_RunSeq3Avancee);
+  server.on("/data", handle_GetData);
   server.on("/cmd", handle_Command);
   server.begin();
 
